@@ -115,9 +115,7 @@ class PretrainVisionTransformerEncoder(nn.Module):
         _, _, T, _, _ = x.shape
         x = self.patch_embed(x)
         x = x + self.pos_embed.type_as(x).to(x.device).clone().detach()
-
         x_vis, mask, ids_restore = self.attention_masking(x, clip_attn)
-        
         # B, _, C = x.shape
         # x_vis = x[~mask].reshape(B, -1, C) # ~mask means visible
 

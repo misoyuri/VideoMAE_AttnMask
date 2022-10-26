@@ -47,13 +47,13 @@ def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: to
             # print("unnorm_videos shape: ", unnorm_videos.shape) -> torch.Size([4, 3, 16, 224, 224])
             
             if normlize_target:
-                videos_squeeze = rearrange(unnorm_videos, 'b c (t p0) (h p1) (w p2) -> b (t h w p0) (p1 p2) c', p0=2, p1=patch_size, p2=patch_size)
+                videos_squeeze = rearrange(unnorm_videos, 'b c (t p0) (h p1) (w p2) -> b (t h w) (p0 p1 p2) c', p0=2, p1=patch_size, p2=patch_size)
                 videos_norm = (videos_squeeze - videos_squeeze.mean(dim=-2, keepdim=True)
                     ) / (videos_squeeze.var(dim=-2, unbiased=True, keepdim=True).sqrt() + 1e-6)
                 # we find that the mean is about 0.48 and standard deviation is about 0.08.
                 videos_patch = rearrange(videos_norm, 'b n p c -> b n (p c)')
             else:
-                videos_patch = rearrange(unnorm_videos, 'b c (t p0) (h p1) (w p2) -> b (t h w p0) ( p1 p2 c)', p0=2, p1=patch_size, p2=patch_size)
+                videos_patch = rearrange(unnorm_videos, 'b c (t p0) (h p1) (w p2) -> b (t h w) (p0 p1 p2 c)', p0=2, p1=patch_size, p2=patch_size)
 
             
             B, _, C = videos_patch.shape
@@ -72,11 +72,10 @@ def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: to
             with torch.no_grad():
                 clip_attn = []
                 for v_idx, v in enumerate(videos.permute(2, 0, 1, 3, 4)):
-                    # if v_idx % 2 == 0:
-                    clip_attn.append(clip_model(v, output_attentions=True).attentions[-1][:, -1, 0, 1:])
+                    if v_idx % 2 == 0:
+                        clip_attn.append(clip_model(v, output_attentions=True).attentions[-1][:, -1, 0, 1:])
                 clip_attn = torch.stack(clip_attn, 0).permute(1, 0, 2)
             
-
             outputs, mask = model(videos, clip_attn)#bool_masked_pos)
             labels = videos_patch[mask].reshape(B, -1, C)
             loss = loss_func(input=outputs, target=labels)
@@ -125,5 +124,6 @@ def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: to
             lr_scheduler.step_update(start_steps + step)
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    if log_writer is not None:
+        log_writer.update(loss_batch=metric_logger.meters["loss"].global_avg, head="loss", step=epoch)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
